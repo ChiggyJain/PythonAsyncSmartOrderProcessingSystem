@@ -13,6 +13,8 @@ from app.cache.redis_client import (
 )
 from app.api.orders_api import router as orders_router
 from app.api.orders_read_api import router as orders_read_router
+from app.api.inventory_api import load_inventory_from_csv
+from app.api.inventory_api import router as inventory_router
 
 
 logger = logging.getLogger(__name__)
@@ -30,6 +32,16 @@ async def lifespan(app: FastAPI):
     redis_client = await create_redis_client()
     # redis-client-conn object is attached in app:state for reuse in overall project
     app.state.redis = redis_client
+
+    # loading all inventory into redis memory while applicaiton start/restart
+    try:
+        count = await load_inventory_from_csv(
+            redis_client, "sample_data/inventory.csv"
+        )
+        logger.info("Inventory loaded on startup: %s items", count)
+    except Exception as exc:  # noqa: BLE001
+        logger.exception("Failed to load inventory on startup: %s", exc)
+
     try:
         # returning controller to main process
         yield
@@ -94,3 +106,4 @@ async def root() -> Dict[str, str]:
 
 app.include_router(orders_router)
 app.include_router(orders_read_router)
+app.include_router(inventory_router)

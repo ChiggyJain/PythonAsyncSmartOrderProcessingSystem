@@ -4,10 +4,11 @@ from typing import Any, Dict
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from redis.asyncio import Redis
 from app.cache.redis_client import get_redis_client
-from app.core.exceptions import OrderValidationError
+from app.core.exceptions import OrderValidationError, InventoryUnavailableError
 from app.schemas.order_schema import OrderCreate, OrderPublic
 from app.services.order_validator import validate_order_business_rules
 from app.utils.id_generator import generate_order_id
+from app.services.inventory_service import reserve_inventory_for_order
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/orders", tags=["orders"])
@@ -32,13 +33,14 @@ async def create_order(
     Create a new order.
     Steps:
     1. Validate business rules.
-    2. Generate order_id.
-    3. Store initial order snapshot in Redis.
-    4. Return public representation.
-    Kafka dispatch + enrichment will come in later phases.
+    2. Reserve inventory for all items.
+    3. Generate order_id.
+    4. Store initial order snapshot in Redis with status "validated".
     """
+
     try:
         total_amount, total_amount_inr = await validate_order_business_rules(order)
+        await reserve_inventory_for_order(redis, order)
     except OrderValidationError as exc:
         logger.warning("Order validation failed: %s | details=%s", exc.message, exc.details)
         raise HTTPException(
@@ -49,7 +51,26 @@ async def create_order(
                 "details": exc.details,
             },
         ) from exc
+    except InventoryUnavailableError as exc:
+        logger.warning(
+            "Inventory unavailable for order: sku=%s requested=%s available=%s",
+            exc.sku,
+            exc.requested,
+            exc.available,
+        )
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "error": "inventory_unavailable",
+                "message": str(exc),
+                "sku": exc.sku,
+                "requested": exc.requested,
+                "available": exc.available,
+            },
+        ) from exc
+        
     order_id = generate_order_id()
+    order_status = "validated"
     now = datetime.utcnow().isoformat()
     # Prepare minimal snapshot (we can enrich later)
     order_key = f"order:{order_id}"
@@ -57,13 +78,12 @@ async def create_order(
     # Here we store as a hash for speed and simplicity.
     order_data: Dict[str, Any] = {
         "order_id": order_id,
-        "status": "received",
+        "status": order_status,
         "customer_id": order.customer_id,
         "currency": order.currency,
         "total_amount": str(total_amount),
         "total_amount_inr": str(total_amount_inr),
         "created_at": order.created_at.isoformat(),
-        # "created_at": None,
         "source": order.source,
         "last_updated_at": now,
     }
@@ -71,7 +91,7 @@ async def create_order(
     # Optional: set TTL, e.g., 24 hours
     await redis.expire(order_key, 24 * 60 * 60)
     logger.info(
-        "Order created: order_id=%s customer_id=%s total=%.2f %s",
+        "Order created & validated: order_id=%s customer_id=%s total=%.2f %s",
         order_id,
         order.customer_id,
         total_amount,
