@@ -105,6 +105,7 @@ async def create_order(
     await AsyncKafkaProducer.send(settings.kafka_orders_topic, kafka_message)
 
     # Update order status → dispatched
+    order_status = "dispatched"
     await redis.hset(order_key, "status", "dispatched")
 
     logger.info(
@@ -116,7 +117,7 @@ async def create_order(
     )
     return OrderPublic(
         order_id=order_id,
-        status="received",
+        status=order_status,
         customer_id=order.customer_id,
         currency=order.currency,
         total_amount=total_amount,

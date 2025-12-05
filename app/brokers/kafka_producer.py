@@ -21,7 +21,6 @@ class AsyncKafkaProducer:
                 client_id="order-service",
                 acks="all",
                 enable_idempotence=True,
-                retries=5,
             )
             await cls._producer.start()
             logger.info("Async Kafka producer started.")
