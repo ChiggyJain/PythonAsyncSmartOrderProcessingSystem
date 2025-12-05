@@ -11,6 +11,8 @@ from app.cache.redis_client import (
     get_redis_client,
     close_redis_client,
 )
+from app.api.orders_api import router as orders_router
+
 
 logger = logging.getLogger(__name__)
 
@@ -88,3 +90,5 @@ async def root() -> Dict[str, str]:
         "docs": "/docs",
         "health": "/system-health",
     }
+
+app.include_router(orders_router)

@@ -1,6 +1,7 @@
 from datetime import datetime
 from typing import Literal, Optional
 from pydantic import BaseModel, Field, field_validator
+from pydantic_core import PydanticUndefined
 
 # its like enum form
 # means anyone value
@@ -39,7 +40,7 @@ class OrderCreate(BaseModel):
     currency: Literal["INR", "USD", "EUR"] = "INR"
     items: list[OrderItem] = Field(..., min_length=1)
     source: Literal["web", "mobile", "partner_api"] = "web"
-    created_at: Optional[datetime] = None
+    created_at: datetime = Field(default_factory=datetime.utcnow)
 
     # added vaalidator customer_id field only.
     # returning data with removing extra spaces
@@ -48,10 +49,12 @@ class OrderCreate(BaseModel):
     def normalize_customer_id(cls, v: str) -> str:
         return v.strip()
 
-    @field_validator("created_at")
+    @field_validator("created_at", mode="before")
     @classmethod
-    def default_created_at(cls, v: Optional[datetime]) -> datetime:
-        return v or datetime.utcnow()
+    def default_created_at(cls, v) -> datetime:
+        if v is None or v is PydanticUndefined:
+            return datetime.utcnow()
+        return v
 
     @field_validator("items")
     @classmethod
