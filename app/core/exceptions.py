@@ -19,7 +19,11 @@ class InventoryUnavailableError(Exception):
     (We will use this later when we add inventory service.)
     """
 
-    def __init__(self, sku: str, requested: int) -> None:
-        super().__init__(f"Insufficient inventory for SKU={sku}")
+    def __init__(self, sku: str, requested: int, available: int) -> None:
+        super().__init__(
+            f"Insufficient inventory for SKU={sku} "
+            f"(requested={requested}, available={available})"
+        )
         self.sku = sku
         self.requested = requested
+        self.available = available
