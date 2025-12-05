@@ -30,7 +30,7 @@ async def load_inventory_from_csv(redis: Redis, file_path: str) -> int:
             reader = csv.DictReader(f)
             return list(reader)
 
-    # here asyncio is running new thread to execute the read_csv function because this function is I/O bound task
+    # here asyncio is running new background thread to execute the blocking-wala read_csv function
     # getting all rows as dict form
     rows = await asyncio.to_thread(_read_csv)
 

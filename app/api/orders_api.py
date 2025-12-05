@@ -3,12 +3,15 @@ from datetime import datetime
 from typing import Any, Dict
 from fastapi import APIRouter, Depends, HTTPException, Request, status
 from redis.asyncio import Redis
+from app.core.config import settings
 from app.cache.redis_client import get_redis_client
 from app.core.exceptions import OrderValidationError, InventoryUnavailableError
 from app.schemas.order_schema import OrderCreate, OrderPublic
 from app.services.order_validator import validate_order_business_rules
 from app.utils.id_generator import generate_order_id
 from app.services.inventory_service import reserve_inventory_for_order
+from app.brokers.kafka_producer import AsyncKafkaProducer
+
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/orders", tags=["orders"])
@@ -72,10 +75,9 @@ async def create_order(
     order_id = generate_order_id()
     order_status = "validated"
     now = datetime.utcnow().isoformat()
-    # Prepare minimal snapshot (we can enrich later)
+    
+    # order details is stored into redis hset
     order_key = f"order:{order_id}"
-    # In a real system we'd use Redis JSON or a DB.
-    # Here we store as a hash for speed and simplicity.
     order_data: Dict[str, Any] = {
         "order_id": order_id,
         "status": order_status,
@@ -88,8 +90,23 @@ async def create_order(
         "last_updated_at": now,
     }
     await redis.hset(order_key, mapping=order_data)
-    # Optional: set TTL, e.g., 24 hours
     await redis.expire(order_key, 24 * 60 * 60)
+
+    # producing message to kafka
+    kafka_message = {
+        "order_id": order_id,
+        "customer_id": order.customer_id,
+        "currency": order.currency,
+        "total_amount": total_amount,
+        "total_amount_inr": total_amount_inr,
+        "created_at": order.created_at.isoformat(),
+        "source": order.source,
+    }
+    await AsyncKafkaProducer.send(settings.kafka_orders_topic, kafka_message)
+
+    # Update order status → dispatched
+    await redis.hset(order_key, "status", "dispatched")
+
     logger.info(
         "Order created & validated: order_id=%s customer_id=%s total=%.2f %s",
         order_id,

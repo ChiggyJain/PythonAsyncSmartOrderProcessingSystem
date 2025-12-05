@@ -15,6 +15,8 @@ from app.api.orders_api import router as orders_router
 from app.api.orders_read_api import router as orders_read_router
 from app.api.inventory_api import load_inventory_from_csv
 from app.api.inventory_api import router as inventory_router
+from app.brokers.kafka_producer import AsyncKafkaProducer
+
 
 
 logger = logging.getLogger(__name__)
@@ -27,11 +29,21 @@ async def lifespan(app: FastAPI):
     - On startup: configure logging, create Redis client, attach to app.state
     - On shutdown: close Redis client
     """
+
     configure_logging()
     logger.info("🚀 Starting Async Smart Order Processing System...")
+    
+    # creating redis connection
     redis_client = await create_redis_client()
+
     # redis-client-conn object is attached in app:state for reuse in overall project
     app.state.redis = redis_client
+
+    # Start async Kafka producer connection
+    try:
+        await AsyncKafkaProducer.init()
+    except Exception as exc:
+        logger.exception("Kafka producer init failed: %s", exc)
 
     # loading all inventory into redis memory while applicaiton start/restart
     try:
