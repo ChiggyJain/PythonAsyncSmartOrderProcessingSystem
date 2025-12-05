@@ -12,6 +12,7 @@ from app.cache.redis_client import (
     close_redis_client,
 )
 from app.api.orders_api import router as orders_router
+from app.api.orders_read_api import router as orders_read_router
 
 
 logger = logging.getLogger(__name__)
@@ -92,3 +93,4 @@ async def root() -> Dict[str, str]:
     }
 
 app.include_router(orders_router)
+app.include_router(orders_read_router)
